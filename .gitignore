@@ -1,0 +1,6 @@
+**/target
+solver-wasm/pkg/
+Cargo.lock
+
+# Not my code
+web/
