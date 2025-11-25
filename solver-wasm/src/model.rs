@@ -64,7 +64,7 @@ impl Constraint {
         Constraint { values }
     }
 
-    fn filter(&self, candidates: Vec<Line>) -> Vec<Line> {
+    fn filter(&self, candidates: &[Line]) -> Vec<Line> {
         return candidates
             .iter()
             .filter(|line| line.to_constraint() == *self)
@@ -115,29 +115,35 @@ impl Line {
         })
     }
 
-    fn filter(&self, candidates: Vec<Line>) -> Vec<Line> {
-        return candidates
+    fn filter(&self, candidates: &[Self]) -> Vec<Self> {
+        candidates
             .iter()
             .filter(|line| self.equivalient(line))
             .cloned()
-            .collect::<Vec<Line>>();
-
+            .collect::<Vec<Line>>()
     }
+
+    // fn sum(lines: &[Self]) -> Option<Self> {
+    //     let new_line = lines
+    //         .iter()
+    //         .reduce(|a, b| a & b);
+    //     new_line.cloned()
+    // }
 }
 
 
-impl fmt::Display for Line {
+impl fmt::Display for &Line {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.cells.iter().join(""))
     }
 }
 
-impl BitAnd for Line {
+impl BitAnd for &Line {
     type Output = Line;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        let cells = zip(self.cells, rhs.cells)
-        .map(|(first, second)| {
+        let cells = zip(&self.cells, &rhs.cells)
+        .map(|(&first, &second)| {
             first & second
         })
         .collect::<Vec<CellState>>();
@@ -145,12 +151,12 @@ impl BitAnd for Line {
     }
 }
 
-impl BitOr for Line {
+impl BitOr for &Line {
     type Output = Line;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        let cells = zip(self.cells, rhs.cells)
-        .map(|(first, second)| {
+        let cells = zip(&self.cells, &rhs.cells)
+        .map(|(&first, &second)| {
             first | second
         })
         .collect::<Vec<CellState>>();
@@ -172,7 +178,7 @@ mod tests {
             let empty = CellState::Empty;
             let unknown = CellState::Unknown;
 
-            println!("{} {} {}", full, empty, unknown);
+            println!("{} {} {}", &full, &empty, &unknown);
         }
 
         #[test]
@@ -215,7 +221,7 @@ mod tests {
             let nok_line = Line::new(vec![CellState::Full, CellState::Full, CellState::Empty, CellState::Full]);
             let lines = vec![ok_line.clone(), nok_line.clone()];
 
-            let filtered_lines = constraint.filter(lines);
+            let filtered_lines = constraint.filter(&lines);
 
             assert_eq!(filtered_lines.len(), 1);
             assert!(filtered_lines.contains(&ok_line));
@@ -251,7 +257,7 @@ mod tests {
             let nequiv_line = Line::new(vec![CellState::Unknown, CellState::Full, CellState::Unknown, CellState::Unknown]);            
             let line_candidates = vec![line.clone(), equiv_line.clone(), nequiv_line.clone()];
 
-            let filtered_lines = line.filter(line_candidates);
+            let filtered_lines = line.filter(&line_candidates);
 
             assert_eq!(filtered_lines.len(), 2);
             assert!(filtered_lines.contains(&line));
@@ -262,7 +268,7 @@ mod tests {
         #[test]
         fn test_print() {
             let line = Line::new(vec![CellState::Full, CellState::Empty, CellState::Full, CellState::Full]);
-            println!("{}", line)
+            println!("{}", &line)
         }
 
         #[test]
@@ -271,7 +277,7 @@ mod tests {
             let b = Line::new(vec![CellState::Empty, CellState::Full, CellState::Unknown, CellState::Empty, CellState::Full, CellState::Unknown]);
             let a_and_b = Line::new(vec![CellState::Empty, CellState::Unknown, CellState::Unknown, CellState::Unknown, CellState::Full, CellState::Unknown]);
 
-            let res = a & b;
+            let res = &a & &b;
             assert_eq!(res, a_and_b)    
         }
         
@@ -281,7 +287,7 @@ mod tests {
             let b = Line::new(vec![CellState::Empty, CellState::Full, CellState::Unknown, CellState::Empty, CellState::Full, CellState::Unknown]);
             let a_or_b = Line::new(vec![CellState::Empty, CellState::Invalid, CellState::Empty, CellState::Invalid, CellState::Full, CellState::Full]);
 
-            let res = a | b;
+            let res = &a | &b;
             assert_eq!(res, a_or_b)    
         }
     }
