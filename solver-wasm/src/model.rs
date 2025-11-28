@@ -3,6 +3,10 @@ use std::ops::{BitAnd, BitOr};
 use std::iter::zip;
 use itertools::Itertools;
 
+
+// TODO: General cleanup
+
+
 pub struct Dimensions {
     num_cols: usize,
     num_rows: usize,

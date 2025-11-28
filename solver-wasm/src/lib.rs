@@ -9,6 +9,7 @@ extern "C" {
     pub fn alert(s: &str);
 }
 
+// TODO: Add support for sending state
 #[wasm_bindgen]
 pub fn solve(constraints_x_str: &str, constraints_y_str: &str, dimensions: &str) -> String {
     let constraints_row = parse_array_string(constraints_y_str)
@@ -28,9 +29,8 @@ pub fn solve(constraints_x_str: &str, constraints_y_str: &str, dimensions: &str)
     let dimensions = parse_dim_string(dimensions);
 
     let mut board = Board::new(constraints, dimensions);
+    // TODO: Return board state properly somehow
     board.solve()
-
-    // board.to_string()
 }
 
 fn parse_dim_string(s: &str) -> Dimensions {
