@@ -72,10 +72,18 @@ mod tests {
 
     #[test]
     fn test_solve() {
-        let hints_x_str = "1,2;4;2,1;1,1;1"; 
-        let hints_y_str = ";5;2;2,1;3";
-        let dimensions_str = "5x5";
+        // let hints_x_str = "1,2;4;2,1;1,1;1"; 
+        // let hints_y_str = ";5;2;2,1;3";
+        // let dimensions_str = "5x5";
 
+        // let hints_x_str = "1;1,1;1,3;1;1"; 
+        // let hints_y_str = "3;;1,1;3;1";
+        // let dimensions_str = "5x5";
+        
+        let hints_x_str = "4,1,2;1,1,3;1,2;1,1,1,1;1,3;2,4;1,1,5;1,3;1,1,2,2;1,1"; 
+        let hints_y_str = "1,1,1,2;1,2;1,1,1;2,1,1;1;5,1,1;3,1;2,4;3,5;2,1,4";
+        let dimensions_str = "10x10";
+        
         solve(hints_x_str, hints_y_str, dimensions_str);
     }
 }

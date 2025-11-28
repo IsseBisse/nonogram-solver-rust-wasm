@@ -319,7 +319,7 @@ impl Board {
                 break
             }
 
-            state_string.push_str(&self.to_string());
+            // state_string.push_str(&self.to_string());
 
             solve_rows = !solve_rows;
             prev_num_unknown = self.num_unknown();
@@ -390,7 +390,7 @@ impl Board {
                 .map(|idx| self.to_line(idx, is_row))
                 .collect::<Vec<Line>>();
 
-            self.row_candidates
+            self.col_candidates
                 .iter_mut()
                 .zip(cols.iter())
                 .for_each(|(candidates, col)| {
