@@ -2,5 +2,7 @@
 solver-wasm/pkg/
 Cargo.lock
 
+*.gif
+
 # Web code for testing, not relevant to solver 
 web/
