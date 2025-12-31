@@ -140,6 +140,7 @@ impl std::fmt::Display for TestResults {
     }
 }
 
+// TODO: Compare solution from test data to proposed solution from solver
 fn run_performance_test(dimensions: &str, test_data: &Vec<TestData>) -> TestResults {
     let mut execution_time = Vec::new();
     for data in test_data {
