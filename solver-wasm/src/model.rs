@@ -5,6 +5,7 @@ use itertools::Itertools;
 
 
 // TODO: General cleanup
+// TODO: Use bits to represent board state
 
 
 pub struct Dimensions {
@@ -309,7 +310,8 @@ impl Board {
         }
     }
 
-    pub fn solve(&mut self) -> String {
+    // TODO: Enable branching to enable guessing
+    pub fn solve(&mut self) {
         let mut prev_num_unknown = self.num_unknown();
         
         let mut solve_rows = true;
@@ -323,16 +325,11 @@ impl Board {
                 break
             }
 
-            // state_string.push_str(&self.to_string());
-
             solve_rows = !solve_rows;
             prev_num_unknown = self.num_unknown();
 
-            println!("{}", self.to_string());
+            // println!("{}", self.to_string());
         }
-
-        state_string.push_str(&self.to_string());
-        state_string
     }
 
     fn to_line(&self, idx: usize, is_row: bool) -> Line {
