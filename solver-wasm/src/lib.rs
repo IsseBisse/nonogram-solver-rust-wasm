@@ -29,8 +29,10 @@ pub fn solve(constraints_x_str: &str, constraints_y_str: &str, dimensions: &str)
     let dimensions = parse_dim_string(dimensions);
 
     let mut board = Board::new(constraints, dimensions);
+    board.solve();
+    
     // TODO: Return board state properly somehow
-    board.solve()
+    board.to_string()
 }
 
 fn parse_dim_string(s: &str) -> Dimensions {

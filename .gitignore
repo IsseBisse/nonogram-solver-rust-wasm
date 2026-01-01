@@ -1,5 +1,6 @@
 **/target
 solver-wasm/pkg/
+solver-wasm/benches/results/
 Cargo.lock
 
 *.gif
