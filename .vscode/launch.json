@@ -1,7 +1,23 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
-    "configurations": []
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug bench",
+            "cargo": {
+                "args": [
+                    "bench",
+                    "--no-run",
+                    "--bench", "performance_test"
+                ],
+                "filter": {
+                    "name": "performance_test",
+                    "kind": "bench"
+                }
+            },
+            "args": ["--bench"],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
 }

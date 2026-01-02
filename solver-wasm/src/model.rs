@@ -1,171 +1,83 @@
+use std::u32;
 use std::fmt;
-use std::ops::{BitAnd, BitOr};
-use std::iter::zip;
-use itertools::Itertools;
 
+use itertools::{Itertools, izip};
 
-// TODO: General cleanup
-// TODO: Use bits to represent board state
-
-
-pub struct Dimensions {
+#[derive(Debug, Clone)]
+pub struct Constraints {
     num_cols: usize,
     num_rows: usize,
+    row_constraints: Vec<Vec<usize>>,
+    col_constraints: Vec<Vec<usize>>,
 }
 
-impl Dimensions {
-    pub fn new(num_rows: usize, num_cols: usize) -> Self {
-        Dimensions { num_cols, num_rows }
-    }
+fn parse_dim_string(s: &str) -> (usize, usize) {
+    let parts = s.split("x").collect::<Vec<&str>>();
+
+    let num_cols = parts[0].parse().unwrap();
+    let num_rows = parts[1].parse().unwrap();
+    (num_rows, num_cols)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum CellState {
-    Full,
-    Empty,
-    Unknown,
-    Invalid
-}
-
-impl fmt::Display for CellState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CellState::Full => write!(f, "█"),
-            CellState::Empty => write!(f, "░"),
-            CellState::Unknown => write!(f, "-"),
-            CellState::Invalid => write!(f, "x")
-        }
-    }
-}
-
-impl BitAnd for CellState {
-    type Output = CellState;
-
-    fn bitand(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (CellState::Full, CellState::Full) => CellState::Full,
-            (CellState::Empty, CellState::Empty) => CellState::Empty,
-            _ => CellState::Unknown, // Default case
-        }
-    }
-}
-
-impl BitOr for CellState {
-    type Output = CellState;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (CellState::Full, CellState::Empty) | (CellState::Empty, CellState::Full) => CellState::Invalid, // We can't combine two differing states
-            (_, CellState::Invalid) | (CellState::Invalid, _) => CellState::Invalid,
-            (_, CellState::Empty) | (CellState::Empty, _) => CellState::Empty,
-            (_, CellState::Full) | (CellState::Full, _) => CellState::Full,
-            _ => CellState::Unknown
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Constraint {
-    values: Vec<usize>
-}
-
-impl Constraint {
-    pub fn new(values: Vec<usize>) -> Self {
-        Constraint { values }
-    }
-
-    fn filter(&self, candidates: &[Line]) -> Vec<Line> {
-        return candidates
-            .iter()
-            .filter(|line| line.to_constraint() == *self)
-            .cloned()
-            .collect::<Vec<Line>>();
-    }
-}
-
-pub struct Constraints {
-    cols: Vec<Constraint>,
-    rows: Vec<Constraint>
+fn parse_array_string(s: &str) -> Vec<Vec<usize>> {
+    s.split(';')
+        .map(|row| {
+            row.split(',')
+                .filter_map(|n| n.parse::<usize>().ok())
+                .collect()
+        })
+        .collect()
 }
 
 impl Constraints {
-    pub fn new(cols: Vec<Constraint>, rows: Vec<Constraint>) -> Self {
-        Constraints { cols, rows }
+    pub fn parse(constraints_x_str: &str, constraints_y_str: &str, dimensions: &str) -> Self {
+        let row_constraints = parse_array_string(constraints_y_str);
+        let col_constraints = parse_array_string(constraints_x_str);
+
+        let (num_rows, num_cols) = parse_dim_string(dimensions);
+
+        Constraints { num_cols, num_rows, row_constraints, col_constraints }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Line {
-    cells: Vec<CellState>
+#[derive(Debug, Clone)]
+struct LineCandidate {
+    filled: u32,
 }
 
-impl Line {
-    fn empty(length: usize) -> Self {
-        Line {
-            cells: vec![CellState::Empty; length]
-        }
-    }
-    
-    fn unknown(length: usize) -> Self {
-        Line {
-            cells: vec![CellState::Unknown; length]
-        }
-    }
+impl LineCandidate {
+    fn is_compatible(&self, filled: u32, known: u32) -> bool {
+        let known_filled = filled & known;
+        let known_empty = !filled & known;
 
-    fn new(cells: Vec<CellState>) -> Self {
-        Line { cells }
-    }
-
-    fn to_constraint(&self) -> Constraint {
-        let values = self.cells
-            .iter()
-            .chunk_by(|&cell| *cell)
-            .into_iter()
-            .filter_map(|(key, group)| {
-                if key == CellState::Full {
-                    Some(group.count())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Constraint::new(values)
-    }
-
-    fn equivalient(&self, rhs: &Self) -> bool {
-        zip(&self.cells, &rhs.cells)
-        .all(|(first, second)| {
-            match (first, second) {
-                (CellState::Unknown, _) | (_, CellState::Unknown) => true,
-                _ => first == second
-            }
-        })
-    }
-
-    fn filter(&self, candidates: &[Self]) -> Vec<Self> {
-        candidates
-            .iter()
-            .filter(|line| self.equivalient(line))
-            .cloned()
-            .collect::<Vec<Line>>()
-    }
-
-    fn sum(lines: &[Self]) -> Option<Self> {
-        if lines.is_empty() {
-            return None
+        if (known_filled & !self.filled) != 0 {
+            return false
         }
 
-        // TODO: Re-write this using function chaining
-        let mut new_line = lines[0].clone();
-        for line in &lines[1..] {
-            new_line = &new_line & line
+        if (known_empty & self.filled) != 0 {
+            return false
         }
 
-        return Some(new_line)
+        true
     }
 
-    fn generate_combinations(blocks: &[Vec<CellState>], free_empty_spaces: usize) -> Vec<Self> {
+    fn sum(candidates: &Vec<LineCandidate>) -> (u32, u32) {
+        let mut all_empty = u32::MAX;
+        let mut all_filled = u32::MAX;
+
+        for cand in candidates {
+            all_empty &= !cand.filled;
+            all_filled &= cand.filled;
+        }
+
+        let known = all_empty | all_filled;
+        let filled = all_filled;
+
+        (filled, known)
+    }
+
+    // TODO: Re-write this old generation implementation
+    fn generate_combinations(blocks: &[Vec<u8>], free_empty_spaces: usize) -> Vec<Self> {
         // NOTE: Claude's translation of python code
         let n_blocks = blocks.len();
         let n_positions = n_blocks + 1;
@@ -192,7 +104,7 @@ impl Line {
             for (i, block) in blocks.iter().enumerate() {
                 // Add empty spaces before this block
                 for _ in 0..counts[i] {
-                    result.push(vec![CellState::Empty]);
+                    result.push(vec![0u8]);
                 }
                 // Add the block
                 result.push(block.clone());
@@ -200,13 +112,17 @@ impl Line {
             
             // Add trailing empty spaces
             for _ in 0..counts[n_blocks] {
-                result.push(vec![CellState::Empty]);
+                result.push(vec![0u8]);
             }
 
-            let line = Line::new(result
-                .into_iter()
-                .flatten()
-                .collect::<Vec<CellState>>());
+            let mut filled = 0u32;
+            for (idx, bit) in result.iter().flatten().rev().enumerate() {
+                if *bit == 1 {
+                    filled += 1 << idx
+                }
+            };
+
+            let line = LineCandidate { filled };
             
             results.push(line);
         }
@@ -214,19 +130,15 @@ impl Line {
         results
     }
 
-    fn generate_initial_candidates(length: usize, constraint: &Constraint) -> Vec<Self> {
-        if constraint.values.len() == 0 {
-            return vec![Line::empty(length)]
-        }
-
-        let mut blocks = constraint.values
+    fn generate_initial_candidates(length: usize, constraint: &Vec<usize>) -> Vec<Self> {
+        let mut blocks = constraint
             .iter()
             .map(|value| {
-                let mut block = vec![CellState::Full; *value];
-                block.push(CellState::Empty);
+                let mut block = vec![1u8; *value];
+                block.push(0u8);
                 block
             })
-            .collect::<Vec<Vec<CellState>>>();
+            .collect::<Vec<Vec<u8>>>();
 
         let last_idx = blocks.len() - 1;
         let last_item_idx = blocks[last_idx].len() - 1;
@@ -238,208 +150,161 @@ impl Line {
             .sum();
         let free_empty_spaces = length - block_occupied_spaces;
 
-        Line::generate_combinations(&blocks, free_empty_spaces)
-    }
-
-}
-
-
-impl fmt::Display for &Line {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.cells.iter().join(""))
+        LineCandidate::generate_combinations(&blocks, free_empty_spaces)
     }
 }
 
-impl BitAnd for &Line {
-    type Output = Line;
-
-    fn bitand(self, rhs: Self) -> Self::Output {
-        let cells = zip(&self.cells, &rhs.cells)
-        .map(|(&first, &second)| {
-            first & second
-        })
-        .collect::<Vec<CellState>>();
-        Line::new(cells)
+fn transpose_32x32(rows: &[u32; 32]) -> [u32; 32] {
+    let mut cols = [0u32; 32];
+    
+    for row in 0..32 {
+        for col in 0..32 {
+            if (rows[row] & (1 << col)) != 0 {
+                cols[col] |= 1 << row;
+            }
+        }
     }
+    
+    cols
 }
 
-impl BitOr for &Line {
-    type Output = Line;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        let cells = zip(&self.cells, &rhs.cells)
-        .map(|(&first, &second)| {
-            first | second
-        })
-        .collect::<Vec<CellState>>();
-        Line::new(cells)
-    }
-}
- 
+#[derive(Debug, Clone)]
 pub struct Board {
-    dimensions: Dimensions,
-    cells: Vec<CellState>,
-    row_constraints: Vec<Constraint>,
-    col_constraints: Vec<Constraint>,
-    row_candidates: Vec<Vec<Line>>,
-    col_candidates: Vec<Vec<Line>>
+    constraints: Constraints,
+
+    // We treat every board as 32x32 to be able to pre-allocate this
+    rows_filled: [u32; 32],
+    rows_known: [u32; 32],
+
+    row_candidates: Vec<Vec<LineCandidate>>,
+    col_candidates: Vec<Vec<LineCandidate>>,
+}
+
+fn board_to_string(filled: &[u32; 32], known: &[u32; 32]) -> String {
+    let mut s = String::new();
+    for (f, k) in filled.iter().zip(known) {
+        s.push_str(&format!("{:032b}\n", f)); 
+        s.push_str(&format!("{:032b}\n", k)); 
+    };
+    s
 }
 
 impl Board {
-    pub fn new(constraints: Constraints, dimensions: Dimensions) -> Self {
-        let length = dimensions.num_cols;
-        
-        let row_candidates = constraints.rows
+    pub fn new(constraints: Constraints) -> Self {
+        let row_candidates = constraints.row_constraints
             .iter()
-            .map(|constraint| Line::generate_initial_candidates(length, constraint))
-            .collect::<Vec<Vec<Line>>>();
-        let col_candidates = constraints.cols
-            .iter()
-            .map(|constraint| Line::generate_initial_candidates(length, constraint))
-            .collect::<Vec<Vec<Line>>>();
+            .map(|c| LineCandidate::generate_initial_candidates(constraints.num_cols, c))
+            .collect::<Vec<_>>();
 
-        let cells = vec![CellState::Unknown; dimensions.num_cols * dimensions.num_rows];
+        let col_candidates = constraints.col_constraints
+            .iter()
+            .map(|c| LineCandidate::generate_initial_candidates(constraints.num_rows, c))
+            .collect::<Vec<_>>();
 
         Board { 
-            dimensions: dimensions, 
-            cells: cells,
-            row_constraints: constraints.rows, 
-            col_constraints: constraints.cols, 
-            row_candidates: row_candidates, 
-            col_candidates: col_candidates
+            constraints, 
+            rows_filled: [0; 32], 
+            rows_known: [0; 32],
+            row_candidates,
+            col_candidates,
         }
     }
 
-    // TODO: Enable branching to enable guessing
-    pub fn solve(&mut self) {
-        let mut prev_num_unknown = self.num_unknown();
-        
-        let mut solve_rows = true;
-        let mut state_string = String::new();
-        while !self.is_solved() {
-            self.update_candidates(solve_rows);
-            self.update_cells(solve_rows);
-
-            if self.num_unknown() == prev_num_unknown {
-                // Board has multiple solutions
-                break
-            }
-
-            solve_rows = !solve_rows;
-            prev_num_unknown = self.num_unknown();
-
-            // println!("{}", self.to_string());
-        }
-    }
-
-    fn to_line(&self, idx: usize, is_row: bool) -> Line {
-        if is_row {
-            let start = idx * self.dimensions.num_cols;
-            let end = start + self.dimensions.num_cols;
-            let cells = self.cells[start..end].to_vec();
-            return Line::new(cells)
+    fn update(&mut self, rowwise: bool) {
+        let candidates = if rowwise {
+            &mut self.row_candidates
         } else {
-            let cells = (0..self.dimensions.num_rows)
-                .map(|row_idx| self.cells[row_idx * self.dimensions.num_cols + idx])
-                .collect();
-            Line::new(cells)
-        }
-    }
-
-    fn or_line(&mut self, idx: usize, is_row: bool, line: &Line) {
-        if is_row {
-            let start = idx * self.dimensions.num_cols;
-            let end = start + self.dimensions.num_cols;
-            self.cells[start..end].copy_from_slice(&line.cells[..]);
-        } else {
-            for (row_idx, cell) in line.cells.iter().enumerate() {
-                self.cells[row_idx * self.dimensions.num_cols + idx] = self.cells[row_idx * self.dimensions.num_cols + idx] | *cell
-            }
-        }
-    }
-
-    pub fn to_string(&self) -> String {
-        let mut s = String::new();
-
-        for row in self.cells.chunks(self.dimensions.num_cols) {
-            for cell in row {
-                s.push_str(&cell.to_string())
-            }
-            s.push('\n')
-        }
-        s.push('\n');
-        s
-    }
-
-    fn update_candidates(&mut self, is_row: bool) {
-        // TODO: Re-write this to re-use code for rows and cols
-        if is_row {
-            let rows = (0..self.row_candidates.len())
-                .map(|idx| self.to_line(idx, is_row))
-                .collect::<Vec<Line>>();
-
-            self.row_candidates
-                .iter_mut()
-                .zip(rows.iter())
-                .for_each(|(candidates, row)| {
-                    candidates.retain(|line| {
-                        line.equivalient(row)
-                    })
-                });
-        } else {
-            let cols = (0..self.col_candidates.len())
-                .map(|idx| self.to_line(idx, is_row))
-                .collect::<Vec<Line>>();
-
-            self.col_candidates
-                .iter_mut()
-                .zip(cols.iter())
-                .for_each(|(candidates, col)| {
-                    candidates.retain(|line| {
-                        line.equivalient(col)
-                    })
-                });
-        }
-    }
-        
-    fn update_cells(&mut self, is_row: bool) {
-        // TODO: Re-write this to re-use code for rows and cols
-        let length = if is_row {
-            self.dimensions.num_cols
-        } else {
-            self.dimensions.num_rows
+            &mut self.col_candidates
         };
 
-        let line_candidates = if is_row {
-            &self.row_candidates
+        let (lines_filled, lines_known) = if rowwise {
+            (self.rows_filled, self.rows_known) 
         } else {
-            &self.col_candidates
+            (transpose_32x32(&self.rows_filled), transpose_32x32(&self.rows_known))
         };
-         
-        let summed_lines = line_candidates
-            .iter()
-            .map(|candidates| {
-                match Line::sum(candidates) {
-                    Some(line) => line,
-                    None => Line::empty(length)
-                }
-            })
-            .collect::<Vec<Line>>();
 
-        for (idx, line) in summed_lines.iter().enumerate() {
-            self.or_line(idx, is_row, line);
+        let lines_mask = if rowwise {
+            (1u32 << self.constraints.num_cols) - 1
+        } else {
+            (1u32 << self.constraints.num_rows) - 1
+        };
+
+        println!("Before");
+        println!("{}", board_to_string(&lines_filled, &lines_known));
+
+        // Update candidates
+        let mut new_filled = [0 as u32; 32];
+        let mut new_known = [0 as u32; 32];
+        for (idx, cand) in candidates.iter_mut().enumerate() {
+            let f = lines_filled[idx];
+            let k = lines_known[idx];
+            cand.retain(|c| c.is_compatible(f, k));
+
+            // Update rows
+            let (new_f, new_k) = LineCandidate::sum(&cand);
+
+            // TODO: 
+            new_filled[idx] = new_f & lines_mask;
+            new_known[idx] = new_k & lines_mask;
+        }
+
+        println!("After");
+        println!("{}", board_to_string(&new_filled, &new_known));
+
+        if rowwise {
+            self.rows_filled = new_filled;
+            self.rows_known = new_known;
+
+        } else {
+            self.rows_filled = transpose_32x32(&new_filled);
+            self.rows_known = transpose_32x32(&new_known)
         }
     }
 
-    fn num_unknown(&self) -> usize {
-        self.cells
+    fn num_unsolved(&self) -> usize {
+        let total_squares = self.constraints.num_rows * self.constraints.num_cols;
+        let set_squares = self.rows_known
             .iter()
-            .filter(|&&cell| cell == CellState::Unknown)
-            .count()
+            .map(|row| row.count_ones() as usize)
+            .sum::<usize>();
+
+        println!("{}", board_to_string(&self.rows_known, &self.rows_known));
+
+        total_squares - set_squares
     }
 
     fn is_solved(&self) -> bool {
-        self.num_unknown() == 0
+        return self.num_unsolved() == 0
+    }
+
+    // fn generate_guesses(&self) -> Vec<Board> {
+
+    // }
+
+    pub fn solve(mut self) -> Vec<Board> {
+        let mut num_unsolved = self.num_unsolved();
+        while !self.is_solved() {
+            println!("Rowwise");
+            self.update(true);
+            println!("Colwise");
+            self.update(false);
+
+            let new_num_unsolved = self.num_unsolved();
+            if new_num_unsolved == num_unsolved {
+                // We can't get further and need to guess
+                break
+            } else {
+                num_unsolved = new_num_unsolved
+            }
+        }
+
+        // guessed_boards = generate_guesses(&board);
+        // let solutions = guessed_board
+        //     .iter()
+        //     .flat_map(|b| solve(b, constraints))
+        //     .collect();
+
+        vec![self.clone()]
     }
 }
 
@@ -448,163 +313,115 @@ impl Board {
 mod tests {
     use super::*;
 
-    mod cell_state {
+    mod constraints {
         use super::*;
 
         #[test]
-        fn test_print() {
-            let full = CellState::Full;
-            let empty = CellState::Empty;
-            let unknown = CellState::Unknown;
+        fn test_parse() {
+            let constraints_x_str = "2;1;2;1";
+            let constraints_y_str = "1,2;3";
+            let dimensions = "4x2";
 
-            println!("{} {} {}", &full, &empty, &unknown);
+            let constraints = Constraints::parse(constraints_x_str, constraints_y_str, dimensions);
+
+            assert_eq!(constraints.num_cols, 4);
+            assert_eq!(constraints.num_rows, 2);
+
+            assert_eq!(
+                constraints.row_constraints, 
+                vec![
+                    vec![1, 2], 
+                    vec![3]
+                    ]);
+
+            assert_eq!(
+                constraints.col_constraints, 
+                vec![
+                    vec![2],
+                    vec![1],
+                    vec![2],
+                    vec![1],
+                    ]);
         }
-
-        #[test]
-        fn test_and() {
-            let full = CellState::Full;
-            let empty = CellState::Empty;
-            let unknown = CellState::Unknown;
-
-            assert_eq!(full & unknown, unknown);
-            assert_eq!(empty & unknown, unknown);
-            assert_eq!(full & empty, unknown);
-            assert_eq!(full & full, full);
-            assert_eq!(empty & empty, empty);
-        }
+    }
     
-        #[test]
-        fn test_or() {
-            let full = CellState::Full;
-            let empty = CellState::Empty;
-            let unknown = CellState::Unknown;
-            let invalid = CellState::Invalid;
-
-            assert_eq!(full | unknown, full);
-            assert_eq!(full | full, full);
-            assert_eq!(empty | unknown, empty);
-            assert_eq!(empty | empty, empty);
-            assert_eq!(full | empty, invalid);
-        }
-    }
-
-    mod constraint {
+    mod line_candidate {
         use super::*;
 
         #[test]
-        fn test_filter() {
-            let values = vec![1, 2];
-            let constraint = Constraint::new(values);
-            
-            let ok_line = Line::new(vec![CellState::Full, CellState::Empty, CellState::Full, CellState::Full]);
-            let nok_line = Line::new(vec![CellState::Full, CellState::Full, CellState::Empty, CellState::Full]);
-            let lines = vec![ok_line.clone(), nok_line.clone()];
+        fn test_is_compatible() {
+            let filled = 0x0000FFFFu32;
+            let line = LineCandidate { filled };
 
-            let filtered_lines = constraint.filter(&lines);
+            let incompatible_filled = 0xF0F0F0F0u32;
+            let compatible_filled = 0x0000FFFFu32;
 
-            assert_eq!(filtered_lines.len(), 1);
-            assert!(filtered_lines.contains(&ok_line));
-            assert!(!filtered_lines.contains(&nok_line))
-        }
-    }
+            let strict_known = 0xFFFFFFFFu32;
+            let permissive_known = 0x0F0FF0F0u32;
 
-    mod line {
-        use super::*;
-
-        #[test]
-        fn test_to_constraint() {
-            let line = Line::new(vec![CellState::Full, CellState::Empty, CellState::Full, CellState::Full]);
-            let constraint = Constraint::new(vec![1, 2]);
-
-            assert_eq!(line.to_constraint(), constraint)
-        }
-
-        #[test]
-        fn test_equivalent() {
-            let line = Line::new(vec![CellState::Full, CellState::Empty, CellState::Full, CellState::Full]);
-            let equiv_line= Line::new(vec![CellState::Full, CellState::Empty, CellState::Unknown, CellState::Unknown]);
-            let nequiv_line = Line::new(vec![CellState::Unknown, CellState::Full, CellState::Unknown, CellState::Unknown]);
-
-            assert!(line.equivalient(&equiv_line));
-            assert!(!line.equivalient(&nequiv_line));
-        }
-
-        #[test]
-        fn test_filter() {
-            let line = Line::new(vec![CellState::Full, CellState::Empty, CellState::Full, CellState::Full]);
-            let equiv_line= Line::new(vec![CellState::Full, CellState::Empty, CellState::Unknown, CellState::Unknown]);
-            let nequiv_line = Line::new(vec![CellState::Unknown, CellState::Full, CellState::Unknown, CellState::Unknown]);            
-            let line_candidates = vec![line.clone(), equiv_line.clone(), nequiv_line.clone()];
-
-            let filtered_lines = line.filter(&line_candidates);
-
-            assert_eq!(filtered_lines.len(), 2);
-            assert!(filtered_lines.contains(&line));
-            assert!(filtered_lines.contains(&equiv_line));
-            assert!(!filtered_lines.contains(&nequiv_line));
-        }
-
-        #[test]
-        fn test_print() {
-            let line = Line::new(vec![CellState::Full, CellState::Empty, CellState::Full, CellState::Full]);
-            println!("{}", &line)
-        }
-
-        #[test]
-        fn test_and() {
-            let a = Line::new(vec![CellState::Empty, CellState::Empty, CellState::Empty, CellState::Full, CellState::Full, CellState::Full]);
-            let b = Line::new(vec![CellState::Empty, CellState::Full, CellState::Unknown, CellState::Empty, CellState::Full, CellState::Unknown]);
-            let a_and_b = Line::new(vec![CellState::Empty, CellState::Unknown, CellState::Unknown, CellState::Unknown, CellState::Full, CellState::Unknown]);
-
-            let res = &a & &b;
-            assert_eq!(res, a_and_b)    
-        }
-        
-        #[test]
-        fn test_or() {
-            let a = Line::new(vec![CellState::Empty, CellState::Empty, CellState::Empty, CellState::Full, CellState::Full, CellState::Full]);
-            let b = Line::new(vec![CellState::Empty, CellState::Full, CellState::Unknown, CellState::Empty, CellState::Full, CellState::Unknown]);
-            let a_or_b = Line::new(vec![CellState::Empty, CellState::Invalid, CellState::Empty, CellState::Invalid, CellState::Full, CellState::Full]);
-
-            let res = &a | &b;
-            assert_eq!(res, a_or_b)    
+            assert_eq!(line.is_compatible(compatible_filled, permissive_known), true);
+            assert_eq!(line.is_compatible(compatible_filled, strict_known), true);
+            assert_eq!(line.is_compatible(incompatible_filled, permissive_known), true);
+            assert_eq!(line.is_compatible(incompatible_filled, strict_known), false);
         }
 
         #[test]
         fn test_sum() {
-            let a = Line::new(vec![CellState::Empty, CellState::Empty, CellState::Empty, CellState::Full, CellState::Full, CellState::Full]);
-            let b = Line::new(vec![CellState::Empty, CellState::Full, CellState::Unknown, CellState::Empty, CellState::Full, CellState::Unknown]);
-            let a_and_b = Line::new(vec![CellState::Empty, CellState::Unknown, CellState::Unknown, CellState::Unknown, CellState::Full, CellState::Unknown]);
+            let first_filled = 0x0000FFFFu32;
+            let first_line = LineCandidate { filled: first_filled };
+            
+            let second_filled = 0xFFFF0000u32;
+            let second_line = LineCandidate { filled: second_filled };
+            
+            let third_filled = 0x0F0F0F0Fu32;
+            let third_line = LineCandidate { filled: third_filled };
 
-            let res = Line::sum(&vec![a, b]).unwrap();
-            assert_eq!(res, a_and_b)    
+            let (fs_filled, fs_known) = LineCandidate::sum(&vec![first_line.clone(), second_line]);
+            assert_eq!(fs_filled, 0u32);
+            assert_eq!(fs_known, 0u32);
+
+            let (ft_filled, ft_known) = LineCandidate::sum(&vec![first_line, third_line]);
+            assert_eq!(ft_filled, 0x00000F0Fu32);
+            assert_eq!(ft_known, 0xF0F00F0Fu32);
+        }
+
+        #[test]
+        fn test_initial_candidate() {
+            let constraints_x_str = "2;1;2;1";
+            let constraints_y_str = "1,2;3";
+            let dimensions = "4x2";
+
+            let constraints = Constraints::parse(constraints_x_str, constraints_y_str, dimensions);
+            let board = Board::new(constraints);
+
+            assert_eq!(board.row_candidates[0].len(), 1);
+            assert_eq!(board.row_candidates[1].len(), 2);
+
+            assert_eq!(board.col_candidates[0].len(), 1);
+            assert_eq!(board.col_candidates[1].len(), 2);
+            assert_eq!(board.col_candidates[2].len(), 1);
+            assert_eq!(board.col_candidates[3].len(), 2);
         }
     }
 
-    mod Board {
-        use crate::model::Board;
-
+    mod board {
         use super::*;
 
         #[test]
-        fn test_is_solved() {
-            let dimensions = Dimensions::new(2, 4);
-            
-            let row_constraints = vec![
-                Constraint::new(vec![1, 2]),
-                Constraint::new(vec![1, 2])
-            ];
-            let col_constraints = vec![
-                Constraint::new(vec![2]),
-                Constraint::new(vec![]),
-                Constraint::new(vec![2]),
-                Constraint::new(vec![2])
-            ];
-            let constraints = Constraints::new(col_constraints, row_constraints);
-            
-            let board = Board::new(constraints, dimensions);
+        fn test_update() {
 
-            // TODO: Implement this
+        }
+
+        fn test_num_unsolved() {
+
+        }
+
+        fn test_is_solved() {
+
+        }
+
+        fn test_solve() {
+
         }
     }
 }
